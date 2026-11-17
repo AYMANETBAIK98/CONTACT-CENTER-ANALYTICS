@@ -28,8 +28,8 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 |---|---|---|---|
 | 0 | Setup: repo, Docker Compose (Redpanda, RustFS S3 storage, PostgreSQL) | Docker | ✅ |
 | 1 | Realistic data generator: contacts, agent states, schedules, forecast | Python | ✅ |
-| 2 | Real time: events into Kafka, KPIs every 15 minutes | Redpanda, Python | ⏳ |
-| 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | |
+| 2 | Real time: events into Kafka, KPIs every 15 minutes | Redpanda, Python | ✅ |
+| 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | ⏳ |
 | 4 | Star schema + data tests | dbt | |
 | 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | |
 | 6 | Automatic intraday status message | Python | |
@@ -99,13 +99,59 @@ Files land in `data/landing/<dataset>/date=YYYY-MM-DD/market=XX/`, partitioned l
 
 - Intraday curve with a late-morning peak, a lunch dip and an afternoon peak; Monday busiest, Saturday half.
 - Actual volume misses the forecast (6 % per day, 10 % per interval), like any forecast.
-- Lean staffing with 8-hour shifts, staggered breaks and lunches.
+- Staffing from **Erlang C** (the agents each interval needs for 80/20), minus up to 40 % (lean staffing),
+  with 8-hour shifts and staggered breaks and lunches.
 - Agents are sometimes absent (6 %), late (12 %), overrun breaks (18 %) or log out early (5 %).
 - Calls are answered in arrival order by the first free agent; callers hang up when their patience runs out.
 
-Result over two weeks: daily service level between ~70 % and ~93 % (80/20 target), abandon rate 3-12 %:
-good days, bad days and bad intervals, which is what makes the real-time steps interesting.
+Result over two weeks: daily service level between ~69 % and ~96 % (80/20 target), abandon rate 2-12 %;
+every Saturday misses the target. About 1 interval in 5 is below 80 %: openings, peaks and Saturdays.
 All tunable in `generator/config.py`.
+
+## Step 2: real time with Kafka
+
+A **producer** replays a simulated day into Redpanda (Kafka) at accelerated speed, in time order.
+A **consumer** reads the events as they arrive and keeps the KPIs of every market and 15-minute interval
+up to date in PostgreSQL (`realtime.interval_kpis`), printing the last closed interval like a live wallboard.
+
+```bash
+# terminal 1: start the KPI consumer (Ctrl+C to stop)
+docker compose run --rm tools python -m streaming.consumer
+# terminal 2: replay Wednesday 4 November at x120 (a 12-hour day in ~7 minutes)
+docker compose run --rm tools python -m streaming.producer --date 2026-11-04 --speed 120
+```
+
+```
+[11:00 UTC] UK LOW SL  62% abd  10% occ  97% adh  88% | DE OK  SL 100% abd   0% occ  40% adh  91% | ES OK  SL 100% abd   0% occ  43% adh  87%
+```
+
+| Topic | Events | Key |
+|---|---|---|
+| `contact-events` | `CONTACT_QUEUED`, `CONTACT_ANSWERED`, `CONTACT_ABANDONED`, `CONTACT_ENDED` (built from each contact record) | market |
+| `agent-events` | agent state changes | market |
+
+The key is the market: Kafka keeps the order of messages with the same key, so each market's events
+arrive in the order they happened.
+
+| KPI | Definition |
+|---|---|
+| Service level | contacts answered within 20 s / contacts offered |
+| Abandon rate | contacts abandoned / contacts offered |
+| ASA | average wait of answered contacts |
+| AHT | average talk + wrap-up |
+| Occupancy | time on contact or wrap-up / productive time (available + on contact + wrap-up) |
+| Adherence | time doing what the schedule planned / scheduled time (work + breaks) |
+
+Contacts are counted in the interval they were queued in; agent time is cut at interval boundaries.
+
+**What if it crashes or runs twice?**
+- The consumer rebuilds its state from the Kafka log at every start (new consumer group, read from the beginning).
+- Every event has an id; an event already counted is ignored, so replaying a day never double-counts.
+- Rows are written with an UPSERT on `(market, interval_start)`: rewriting an interval replaces it.
+
+Tests (`tests/test_streaming.py`) check that KPIs counted event by event equal the batch truth,
+that a replayed day gives the same numbers, and that adherence drops when a break runs long.
+`tests/test_erlang.py` checks the Erlang C formula against published table values.
 
 ## Project structure
 
@@ -114,8 +160,8 @@ All tunable in `generator/config.py`.
 ├── Dockerfile.tools     # the tools container (Python 3.11 + libraries)
 ├── sql/init.sql         # PostgreSQL schemas, created on first start
 ├── scripts/             # setup check, bucket creation
-├── generator/           # step 1: simulated contact center data
-├── streaming/           # step 2: Kafka producer / consumer, real-time KPIs
+├── generator/           # step 1: simulated contact center data + Erlang C
+├── streaming/           # step 2: Kafka producer, KPI consumer, shared KPI logic
 ├── spark/               # step 3: PySpark lakehouse jobs
 ├── dbt/                 # step 4: star schema + tests
 ├── dashboards/          # step 7

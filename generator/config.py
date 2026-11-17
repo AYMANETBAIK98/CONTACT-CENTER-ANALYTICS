@@ -39,9 +39,9 @@ WEEKDAY_FACTOR = {0: 1.15, 1: 1.05, 2: 1.00, 3: 0.97, 4: 0.92, 5: 0.50, 6: 0.0}
 DAY_FORECAST_ERROR = 0.06        # standard deviation of the daily error (6 %)
 INTERVAL_FORECAST_ERROR = 0.10   # standard deviation of the error per 15-minute interval
 
-# Staffing: how many agents are scheduled compared with the workload
-TARGET_OCCUPANCY = 1.0           # agents needed = workload / occupancy (1.0 = lean staffing, like a tight budget)
-STAFFING_TOLERANCE = 2.5         # an interval may be up to 2.5 agents short: some intervals miss SL, like real life
+# Staffing: planners schedule the agents Erlang C asks for, minus a little (lean staffing)
+STAFFING_TOLERANCE = 0.40         # an interval may be up to 10 % short of the agents it needs...
+MAX_AGENTS_SHORT = 6.0           # ...but never more than 2 agents short: some intervals miss SL, like real life
 SHIFT_HOURS = 8
 BREAKS = [                       # (minutes after shift start, duration in minutes, state)
     (120, 15, "BREAK"),

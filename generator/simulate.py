@@ -25,6 +25,7 @@ import numpy as np
 
 from generator import config as cfg
 from generator.config import Market
+from generator.erlang import agents_needed
 
 INTERVAL = timedelta(minutes=cfg.INTERVAL_MINUTES)
 
@@ -96,14 +97,14 @@ class Shift:
 
 
 def build_schedule(market: Market, forecast: list[Interval]) -> list[Shift]:
-    """Add 8-hour shifts until each interval has the agents its workload needs.
-    Needed agents = workload in hours / interval length / target occupancy."""
+    """Add 8-hour shifts until each interval has (almost) the agents Erlang C says it needs."""
     if not forecast:
         return []
     n = len(forecast)
     slots_per_shift = min(cfg.SHIFT_HOURS * 60 // cfg.INTERVAL_MINUTES, n)
-    needed = [iv.forecast_contacts * iv.forecast_aht / (cfg.INTERVAL_MINUTES * 60) / cfg.TARGET_OCCUPANCY
-              for iv in forecast]
+    # agents each interval needs to reach 80/20 with the forecast volume (Erlang C, like a WFM planner)
+    needed = [agents_needed(iv.forecast_contacts, iv.forecast_aht, cfg.SERVICE_LEVEL_TARGET,
+                            cfg.SERVICE_LEVEL_SECONDS, cfg.INTERVAL_MINUTES * 60) for iv in forecast]
 
     def productive_slots(start_slot: int) -> list[int]:
         """Intervals a shift starting at start_slot covers, minus its planned breaks."""
@@ -114,11 +115,14 @@ def build_schedule(market: Market, forecast: list[Interval]) -> list[Shift]:
         return [s for s in range(start_slot, start_slot + slots_per_shift) if s not in off and s < n]
 
     starts = range(0, n - slots_per_shift + 1, 2)            # a shift can start every 30 minutes
+    # each interval may stay a little short (lean staffing), but never more than 2 agents
+    # and never so short that a quiet interval (opening, closing) is left with nobody
+    allowed_gap = [min(cfg.STAFFING_TOLERANCE * need, cfg.MAX_AGENTS_SHORT) for need in needed]
     coverage = [0.0] * n
     shift_starts: list[int] = []
     while True:
         deficit = [needed[i] - coverage[i] for i in range(n)]
-        gain = {s: sum(max(deficit[i] - cfg.STAFFING_TOLERANCE, 0) for i in productive_slots(s)) for s in starts}
+        gain = {s: sum(max(deficit[i] - allowed_gap[i], 0) for i in productive_slots(s)) for s in starts}
         best = max(gain, key=gain.get)
         if gain[best] <= 0:                     # no shift can still reduce the gap: schedule complete
             break
