@@ -5,7 +5,7 @@
 Checks that:
   1. PostgreSQL is reachable and has the 4 schemas
   2. Redpanda (Kafka) is reachable and has the 2 topics
-  3. MinIO (S3) is reachable and has the 3 lakehouse buckets
+  3. RustFS (S3) is reachable and has the 3 lakehouse buckets
 """
 from __future__ import annotations
 
@@ -63,31 +63,32 @@ def check_redpanda() -> bool:
     return True
 
 
-def check_minio() -> bool:
+def check_s3() -> bool:
     endpoint = os.getenv("S3_ENDPOINT", "http://localhost:9000")
     s3 = boto3.client(
         "s3",
         endpoint_url=endpoint,
-        aws_access_key_id=os.getenv("S3_ACCESS_KEY", "minio"),
-        aws_secret_access_key=os.getenv("S3_SECRET_KEY", "minio12345"),
+        aws_access_key_id=os.getenv("S3_ACCESS_KEY", "lakehouse"),
+        aws_secret_access_key=os.getenv("S3_SECRET_KEY", "lakehouse123"),
+        region_name="us-east-1",
         config=Config(connect_timeout=5, retries={"max_attempts": 1}),
     )
     try:
         buckets = {b["Name"] for b in s3.list_buckets()["Buckets"]}
     except Exception as exc:
-        print(f"[FAIL] MinIO not reachable on {endpoint}: {exc}")
+        print(f"[FAIL] S3 storage (RustFS) not reachable on {endpoint}: {exc}")
         return False
-    print(f"[OK]   MinIO reachable on {endpoint}")
+    print(f"[OK]   S3 storage (RustFS) reachable on {endpoint}")
     missing = EXPECTED_BUCKETS - buckets
     if missing:
-        print(f"[FAIL] S3 buckets missing: {sorted(missing)} (did minio-init run?)")
+        print(f"[FAIL] S3 buckets missing: {sorted(missing)} (did s3-init run?)")
         return False
     print(f"[OK]   S3 buckets: {sorted(EXPECTED_BUCKETS)}")
     return True
 
 
 def main() -> int:
-    results = [check_postgres(), check_redpanda(), check_minio()]
+    results = [check_postgres(), check_redpanda(), check_s3()]
     ok = all(results)
     print("\nEnvironment ready. On to step 1!" if ok else "\nSomething is missing, see [FAIL] lines above.")
     return 0 if ok else 1
