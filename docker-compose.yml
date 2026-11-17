@@ -138,7 +138,37 @@ services:
       rustfs:
         condition: service_started
 
+  # Spark container (step 3): Java 17 + Spark 3.5 + Python, runs the lakehouse jobs
+  #   docker compose run --rm spark spark-submit spark/silver.py
+  spark:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    profiles: ["tools"]                  # not started by "up", only by "run"
+    user: root                           # so it can write the ivy cache volume
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ivy_cache:/opt/ivy               # jars downloaded once (hadoop-aws, postgresql), kept between runs
+    environment:
+      PATH: /opt/spark/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PYTHONPATH: /app                   # so the jobs can "import spark.lake"
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-lakehouse}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-lakehouse123}
+      WAREHOUSE_HOST: postgres
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-contact_center}
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-cc}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+
 volumes:
   redpanda_data:
   s3_data:
   pg_data:
+  ivy_cache:

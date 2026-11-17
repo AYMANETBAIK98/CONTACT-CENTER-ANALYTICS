@@ -1,0 +1,4 @@
+# Spark 3.5 + Java 17 + Python, plus the few Python libraries the jobs and their tests use
+FROM apache/spark:3.5.3-scala2.12-java17-python3-ubuntu
+USER root
+RUN pip install --no-cache-dir numpy==1.26.4 pandas==2.2.3 pyarrow==15.0.2 pytest==8.3.4 tzdata==2025.2

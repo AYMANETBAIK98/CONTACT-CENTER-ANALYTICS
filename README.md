@@ -29,8 +29,8 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 0 | Setup: repo, Docker Compose (Redpanda, RustFS S3 storage, PostgreSQL) | Docker | ✅ |
 | 1 | Realistic data generator: contacts, agent states, schedules, forecast | Python | ✅ |
 | 2 | Real time: events into Kafka, KPIs every 15 minutes | Redpanda, Python | ✅ |
-| 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | ⏳ |
-| 4 | Star schema + data tests | dbt | |
+| 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | ✅ |
+| 4 | Star schema + data tests | dbt | ⏳ |
 | 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | |
 | 6 | Automatic intraday status message | Python | |
 | 7 | Live dashboard + historical dashboard | Grafana / Streamlit, Power BI | |
@@ -154,16 +154,56 @@ Tests (`tests/test_streaming.py`) check that KPIs counted event by event equal t
 that a replayed day gives the same numbers, and that adherence drops when a break runs long.
 `tests/test_erlang.py` checks the Erlang C formula against published table values.
 
+## Step 3: the lakehouse (bronze → silver → gold) with PySpark
+
+```bash
+docker compose build spark                                              # once: Spark 3.5 + Java 17 image
+docker compose run --rm tools python scripts/ingest_bronze.py          # landing files -> s3://bronze (as-is)
+docker compose run --rm spark spark-submit spark/silver.py             # bronze -> silver (clean Parquet)
+docker compose run --rm spark spark-submit spark/gold.py               # silver -> gold (+ PostgreSQL "lakehouse")
+docker compose run --rm spark pytest -v tests/test_lakehouse.py
+```
+
+The first Spark run downloads two libraries from Maven Central (hadoop-aws for `s3a://`, the PostgreSQL JDBC
+driver); they are cached in the `ivy_cache` volume.
+
+| Layer | Where | What | Rules |
+|---|---|---|---|
+| **Bronze** | `s3://bronze/<dataset>/date=/market=/` | the landing files, untouched | idempotent upload: same MD5 = skipped |
+| **Silver** | `s3://silver/<table>/date=/market=/` (Parquet) | `contacts`, `agent_states`, `schedule`, `forecast`, `quarantine` | explicit schemas, flattened JSON, typed timestamps, quality rules, deduplication |
+| **Gold** | `s3://gold/<table>/date=/` (Parquet) + PostgreSQL `lakehouse.*` | `interval_kpis`, `agent_daily`, `daily_market` | business tables for dbt and dashboards |
+
+**Silver highlights**
+- Data-quality rules (missing id, unreadable timestamp, dequeue before enqueue, negative durations, unknown state):
+  a broken row goes to `silver/quarantine` **with its reason** instead of silently disappearing.
+- Duplicates (the same contact or event delivered twice) are kept once.
+- `agent_states` is built with a window function (`LEAD`): each state lasts until the agent's next event.
+- Reruns are idempotent: dynamic partition overwrite replaces only the partitions a run writes.
+
+**Gold tables**
+
+| Table | One row per | Main columns |
+|---|---|---|
+| `interval_kpis` | market × 15 min | forecast vs offered, SL, abandon, ASA, AHT, occupancy, adherence, agents scheduled / productive |
+| `agent_daily` | agent × day | absent, late login (min), pause overrun (min), contacts handled, AHT, adherence |
+| `daily_market` | market × day | end-of-day report: SL, abandon, forecast error, intervals below target, absent agents |
+
+**Batch = streaming.** `tests/test_lakehouse.py` recomputes a day with Spark and checks that every interval's KPIs
+equal the ones the Kafka consumer computes event by event (step 2). Building that test found a real bug:
+two agent events at the same millisecond (`LOGIN` then `AVAILABLE`) were sometimes ordered the wrong way,
+leaving the agent "not productive" for hours. Silver now orders ties `LOGIN` first, `LOGOUT` last.
+
 ## Project structure
 
 ```
 ├── docker-compose.yml   # infrastructure: Redpanda, RustFS (S3), PostgreSQL + a Python "tools" container
 ├── Dockerfile.tools     # the tools container (Python 3.11 + libraries)
+├── Dockerfile.spark     # the spark container (Spark 3.5, Java 17, Python)
 ├── sql/init.sql         # PostgreSQL schemas, created on first start
-├── scripts/             # setup check, bucket creation
+├── scripts/             # setup check, bucket creation, bronze ingestion
 ├── generator/           # step 1: simulated contact center data + Erlang C
 ├── streaming/           # step 2: Kafka producer, KPI consumer, shared KPI logic
-├── spark/               # step 3: PySpark lakehouse jobs
+├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
 ├── dbt/                 # step 4: star schema + tests
 ├── dashboards/          # step 7
 ├── tests/               # pytest
