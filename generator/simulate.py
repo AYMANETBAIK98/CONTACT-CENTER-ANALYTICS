@@ -115,9 +115,10 @@ def build_schedule(market: Market, forecast: list[Interval]) -> list[Shift]:
         return [s for s in range(start_slot, start_slot + slots_per_shift) if s not in off and s < n]
 
     starts = range(0, n - slots_per_shift + 1, 2)            # a shift can start every 30 minutes
-    # each interval may stay a little short (lean staffing), but never more than 2 agents
-    # and never so short that a quiet interval (opening, closing) is left with nobody
-    allowed_gap = [min(cfg.STAFFING_TOLERANCE * need, cfg.MAX_AGENTS_SHORT) for need in needed]
+    # lean staffing: busy intervals may stay a little short of the need, small teams may not
+    # (with a few agents, one missing agent already breaks the service level: Erlang C is not linear)
+    allowed_gap = [min(cfg.STAFFING_TOLERANCE * max(need - cfg.SMALL_TEAM, 0), cfg.MAX_AGENTS_SHORT)
+                   for need in needed]
     coverage = [0.0] * n
     shift_starts: list[int] = []
     while True:
@@ -179,6 +180,7 @@ class AgentRun:
 
 
 def agent_reality(shifts: list[Shift], rng: np.random.Generator) -> list[AgentRun]:
+    closing = max((s.end for s in shifts), default=None)
     runs = []
     for s in shifts:
         if rng.random() < cfg.ABSENCE_RATE:
@@ -186,9 +188,13 @@ def agent_reality(shifts: list[Shift], rng: np.random.Generator) -> list[AgentRu
         login = s.start + timedelta(seconds=float(rng.uniform(0, 90)))
         if rng.random() < cfg.LATE_LOGIN_RATE:
             login += timedelta(minutes=float(rng.uniform(*cfg.LATE_LOGIN_MINUTES)))
-        logout = s.end - timedelta(seconds=float(rng.uniform(0, 60)))
-        if rng.random() < cfg.EARLY_LOGOUT_RATE:
-            logout -= timedelta(minutes=float(rng.uniform(*cfg.EARLY_LOGOUT_MINUTES)))
+        if s.end == closing:
+            # closing shift: agents stay until the queue is empty, they never leave early
+            logout = s.end + timedelta(minutes=float(rng.uniform(*cfg.CLOSING_OVERTIME_MINUTES)))
+        else:
+            logout = s.end - timedelta(seconds=float(rng.uniform(0, 60)))
+            if rng.random() < cfg.EARLY_LOGOUT_RATE:
+                logout -= timedelta(minutes=float(rng.uniform(*cfg.EARLY_LOGOUT_MINUTES)))
         breaks = []
         for planned, minutes, state in s.breaks:
             seconds = minutes * 60 + float(rng.uniform(-30, 45))

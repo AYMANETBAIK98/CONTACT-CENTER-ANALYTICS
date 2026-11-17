@@ -99,13 +99,14 @@ Files land in `data/landing/<dataset>/date=YYYY-MM-DD/market=XX/`, partitioned l
 
 - Intraday curve with a late-morning peak, a lunch dip and an afternoon peak; Monday busiest, Saturday half.
 - Actual volume misses the forecast (6 % per day, 10 % per interval), like any forecast.
-- Staffing from **Erlang C** (the agents each interval needs for 80/20), minus up to 40 % (lean staffing),
-  with 8-hour shifts and staggered breaks and lunches.
+- Staffing from **Erlang C** (the agents each interval needs for 80/20). Busy intervals may stay short
+  (lean staffing); small teams (6 agents or fewer) are always fully staffed. 8-hour shifts, staggered breaks and lunches;
+  the closing shift stays until the queue is empty.
 - Agents are sometimes absent (6 %), late (12 %), overrun breaks (18 %) or log out early (5 %).
 - Calls are answered in arrival order by the first free agent; callers hang up when their patience runs out.
 
-Result over two weeks: daily service level between ~69 % and ~96 % (80/20 target), abandon rate 2-12 %;
-every Saturday misses the target. About 1 interval in 5 is below 80 %: openings, peaks and Saturdays.
+Result over two weeks: weekday service level 87-98 % (80/20 target), Saturdays 60-80 % with a single shift;
+abandon rate 0.5-15 % per day. About 1 interval in 7 is below 80 %, mostly at the morning peak and on Saturdays.
 All tunable in `generator/config.py`.
 
 ## Step 2: real time with Kafka

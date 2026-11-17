@@ -40,8 +40,9 @@ DAY_FORECAST_ERROR = 0.06        # standard deviation of the daily error (6 %)
 INTERVAL_FORECAST_ERROR = 0.10   # standard deviation of the error per 15-minute interval
 
 # Staffing: planners schedule the agents Erlang C asks for, minus a little (lean staffing)
-STAFFING_TOLERANCE = 0.40         # an interval may be up to 10 % short of the agents it needs...
-MAX_AGENTS_SHORT = 6.0           # ...but never more than 2 agents short: some intervals miss SL, like real life
+STAFFING_TOLERANCE = 0.50         # busy intervals may be short of up to 50 % of the agents above a small team...
+SMALL_TEAM = 6                   # intervals needing 6 agents or fewer are fully staffed
+MAX_AGENTS_SHORT = 7.0           # ...and never more than 7 agents short: some intervals miss SL, like real life
 SHIFT_HOURS = 8
 BREAKS = [                       # (minutes after shift start, duration in minutes, state)
     (120, 15, "BREAK"),
@@ -56,4 +57,5 @@ BREAK_OVERRUN_RATE = 0.18        # 18 % of breaks last longer than planned
 BREAK_OVERRUN_MINUTES = (2, 10)
 EARLY_LOGOUT_RATE = 0.05
 EARLY_LOGOUT_MINUTES = (5, 20)
+CLOSING_OVERTIME_MINUTES = (5, 15)  # closing shift stays after closing time to clear the queue
 ABSENCE_RATE = 0.06              # 6 % of scheduled agents do not show up at all
