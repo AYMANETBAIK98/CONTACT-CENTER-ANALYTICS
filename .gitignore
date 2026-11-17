@@ -1,0 +1,23 @@
+# secrets and local settings
+.env
+# generated data never goes to GitHub (it is simulated and can be regenerated)
+data/*
+!data/landing/
+data/landing/*
+!data/landing/.gitkeep
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+.user.yml
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,148 @@
+# Contact Center Analytics Platform - local infrastructure
+#
+#   docker compose up -d                                   start the 3 services
+#   docker compose run --rm tools python scripts/check_setup.py   check everything is ready
+#   docker compose down                                    stop (data is kept in volumes)
+#
+# Ports chosen so they do not clash with the HR project (5434 / 8081):
+#   Redpanda (Kafka) 19092 · Redpanda Console 8080 · MinIO 9000 / 9001 · PostgreSQL 5435
+
+name: contact-center
+
+services:
+
+  # ---------------------------------------------------------------- streaming
+  # Redpanda = Kafka-compatible broker, single binary, much lighter than Kafka + ZooKeeper
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda start
+      - --mode dev-container             # single node, low resources
+      - --smp 1
+      - --memory 1G
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+    ports:
+      - "19092:19092"                    # Kafka API from your PC
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Creates the topics once the broker is healthy, then exits
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >
+        rpk topic create contact-events agent-events -p 3 -X brokers=redpanda:9092 || true;
+        rpk topic list -X brokers=redpanda:9092
+    restart: "no"
+
+  # Web UI to look inside the topics: http://localhost:8080
+  console:
+    image: redpandadata/console:v2.7.2
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------- lakehouse storage
+  # MinIO = S3-compatible object storage, our local "AWS S3"
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio12345}
+    ports:
+      - "9000:9000"                      # S3 API
+      - "9001:9001"                      # web console: http://localhost:9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Creates the 3 lakehouse buckets (bronze / silver / gold), then exits
+  minio-init:
+    image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minio} $${MINIO_ROOT_PASSWORD:-minio12345} &&
+        mc mb --ignore-existing local/bronze local/silver local/gold &&
+        mc ls local
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio12345}
+    restart: "no"
+
+  # ---------------------------------------------------------------- serving database
+  # PostgreSQL = where real-time KPIs and the star schema live (read by the dashboards)
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${WAREHOUSE_DB:-contact_center}
+      POSTGRES_USER: ${WAREHOUSE_USER:-cc}
+      POSTGRES_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
+    ports:
+      - "5435:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WAREHOUSE_USER:-cc} -d ${WAREHOUSE_DB:-contact_center}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------- tools
+  # Python container with all the libraries: we run our scripts inside it,
+  # so nothing has to be installed on your PC except Docker
+  tools:
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    profiles: ["tools"]                  # not started by "up", only by "run"
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minio12345}
+      WAREHOUSE_HOST: postgres
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-contact_center}
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-cc}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+volumes:
+  redpanda_data:
+  minio_data:
+  pg_data:
