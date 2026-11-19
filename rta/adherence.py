@@ -4,7 +4,7 @@ For every scheduled agent, at a given moment ("now"):
   - what the schedule says now (WORK, BREAK, LUNCH) and what the agent is doing (AVAILABLE, ON_CONTACT, BREAK...)
   - for how long they have been out of adherence, without interruption
   - the exception a real-time analyst acts on:
-        NOT LOGGED IN     planned on WORK, not logged in (late, absent, or logged out early)
+        NOT LOGGED IN     scheduled now, not logged in (late, absent, or logged out early)
         PAUSE OVERRUN     planned back on WORK, still in the break or lunch that just ended
         UNPLANNED PAUSE   planned on WORK, in a pause the schedule does not have now
         WORKING IN PAUSE  planned on a pause, still taking contacts (lower priority, but it shifts the plan)
@@ -89,7 +89,7 @@ def agent_status(agent: str, plan: list[tuple[datetime, datetime, str]], events:
     actual_now = actual[-1][2] if actual and actual[-1][1] == now else None   # the state still running now
     exception = None
     if planned_now is not None and not adherent(planned_now, actual_now):
-        if planned_now == "WORK" and actual_now is None:
+        if actual_now is None:                                  # whatever the plan says, the agent is not there
             exception = "NOT LOGGED IN"
         elif planned_now == "WORK" and actual_now in PAUSES:
             # overrun = the pause the agent is in started before the planned pause ended

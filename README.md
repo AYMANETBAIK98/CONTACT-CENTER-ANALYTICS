@@ -33,7 +33,7 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 4 | Star schema + data tests | dbt | ✅ |
 | 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | ✅ |
 | 6 | Automatic intraday status message | Python | ✅ |
-| 7 | Live dashboard + historical dashboard | Grafana / Streamlit, Power BI | |
+| 7 | Live dashboard + historical dashboard | Streamlit, Power BI | ⏳ |
 | 8 | Orchestration + CI | Airflow, GitHub Actions | |
 
 ## Run it locally
@@ -67,6 +67,7 @@ Environment ready. On to step 1!
 | RustFS console (S3 UI) | http://localhost:9001/rustfs/console/ | `lakehouse` / `lakehouse123` |
 | PostgreSQL | `localhost:5435`, database `contact_center` | `cc` / `cc` |
 | Kafka API (from your PC) | `localhost:19092` | – |
+| Live dashboard (step 7) | http://localhost:8501 | – |
 
 Stop with `docker compose down` (data is kept). `docker compose down -v` also deletes the data.
 
@@ -327,6 +328,27 @@ Target out of reach today: priority is to limit abandons and protect tomorrow.
 uncertainty is modelled as 0.5 point + 4 points × the share of the day's calls still to come, and the probability is
 the normal-curve chance that the close lands above 80 %. Risk: LOW ≥ 90 %, MEDIUM ≥ 60 %, HIGH below.
 
+## Step 7: dashboards
+
+### 7a. Live dashboard (Streamlit)
+
+```bash
+docker compose build dashboard                 # once: same image as tools, with Streamlit
+docker compose up -d dashboard                 # then open http://localhost:8501
+```
+
+![Live dashboard](docs/screenshots/live_dashboard.png)
+
+The real-time analyst's screen in the browser, built only from the step 5 and 6 logic (`rta/`):
+- one card per market: SL so far, end-of-day projection, probability of closing at 80 % or more, status;
+- service level per interval against the 80/20 line, offered calls against the forecast;
+- the intervals of the rest of the day short of agents (calibrated Erlang C);
+- adherence exceptions, most urgent first, coloured by adherence band;
+- the intraday status message of step 6, ready to paste.
+
+Two modes: **Replay** (no Kafka, a slider moves the clock through a simulated day) and **Live**: start the consumer
+and the producer of step 2 and the page refreshes itself as `realtime.interval_kpis` fills up.
+
 ## Project structure
 
 ```
@@ -340,7 +362,7 @@ the normal-curve chance that the close lands above 80 %. Risk: LOW ≥ 90 %, MED
 ├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
 ├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
 ├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest, adherence wallboard, status message)
-├── dashboards/          # step 7
+├── dashboards/live/     # step 7a: Streamlit live dashboard
 ├── tests/               # pytest
 └── docs/                # documentation
 ```

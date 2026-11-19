@@ -170,6 +170,30 @@ services:
       rustfs:
         condition: service_started
 
+  # Live dashboard (step 7a): http://localhost:8501
+  #   docker compose up -d dashboard
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    profiles: ["tools"]                  # started only when named: "docker compose up -d dashboard"
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: ["streamlit", "run", "dashboards/live/app.py", "--server.port", "8501", "--server.address", "0.0.0.0", "--server.headless", "true"]
+    ports:
+      - "8501:8501"
+    environment:
+      PYTHONPATH: /app
+      WAREHOUSE_HOST: postgres
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-contact_center}
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-cc}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   redpanda_data:
   s3_data:
