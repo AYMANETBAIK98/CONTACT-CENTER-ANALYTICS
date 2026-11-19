@@ -72,3 +72,59 @@ def test_projection_on_a_simulated_day(tmp_path, monkeypatch):
     noon = datetime(2026, 11, 4, 12, 0, tzinfo=timezone.utc)
     p = project("UK", noon, rows, load_forecast(str(d), tmp_path)["UK"], load_planned_agents(str(d), tmp_path)["UK"])
     assert abs(p.projected_sl - actual) < 0.05
+
+
+# ---------------------------------------------------------------- 5b. live adherence
+def ev(agent, hhmm, state):
+    return {"AgentUsername": agent, "EventTimestamp": f"2026-11-04T{hhmm}:00.000Z", "State": state}
+
+
+def ts(hhmm):
+    return datetime.fromisoformat(f"2026-11-04T{hhmm}:00+00:00")
+
+
+PLAN = [(ts("08:00"), ts("10:00"), "WORK"), (ts("10:00"), ts("10:15"), "BREAK"), (ts("10:15"), ts("12:00"), "WORK")]
+
+
+def test_pause_overrun_is_flagged_with_its_duration():
+    from rta.adherence import agent_status
+    events = [ev("UK-A1", "08:00", "LOGIN"), ev("UK-A1", "08:00", "AVAILABLE"), ev("UK-A1", "10:00", "BREAK")]
+    s = agent_status("UK-A1", PLAN, events, ts("10:25"))          # break planned until 10:15, still on it
+    assert s.exception == "PAUSE OVERRUN" and s.minutes_out == 10
+    assert s.adherence == pytest.approx((145 - 10) / 145)          # 10 of 145 scheduled minutes out
+
+
+def test_absent_and_perfect_agents():
+    from rta.adherence import agent_status
+    absent = agent_status("UK-A2", PLAN, [], ts("09:00"))
+    assert absent.exception == "NOT LOGGED IN" and absent.band == "Absent" and absent.minutes_out == 60
+    events = [ev("UK-A3", "08:00", "LOGIN"), ev("UK-A3", "08:00", "AVAILABLE"), ev("UK-A3", "10:00", "BREAK"),
+              ev("UK-A3", "10:15", "AVAILABLE")]
+    perfect = agent_status("UK-A3", PLAN, events, ts("11:00"))
+    assert perfect.exception is None and perfect.adherence == 1 and perfect.band == "Green"
+    assert agent_status("UK-A3", PLAN, events, ts("07:30")).band == "Not started"
+
+
+def test_wallboard_adherence_equals_streaming_kpis(tmp_path, monkeypatch):
+    """Agent by agent (wallboard) or interval by interval (Kafka consumer, step 2): same adherence for the market."""
+    import generator.generate as gen
+    from generator.config import MARKETS
+    from generator.simulate import simulate_day
+    from rta.wallboard import statuses
+    from streaming.events import KpiState, load_schedule
+    from streaming.producer import CONTACT_TOPIC, day_events
+    monkeypatch.setattr(gen, "LANDING", tmp_path)
+    d = date(2026, 11, 4)
+    gen.write_day(d, "UK", simulate_day(MARKETS[0], d, seed=42))
+    end = datetime(2026, 11, 4, 23, 0, tzinfo=timezone.utc)
+    agents = [s for s in statuses(str(d), end, tmp_path) if s.scheduled_minutes]
+    wallboard = sum(s.adherence * s.scheduled_minutes for s in agents) / sum(s.scheduled_minutes for s in agents)
+
+    state = KpiState()
+    state.add_schedule(load_schedule(tmp_path, str(d)))
+    for _, topic, e in day_events(str(d), tmp_path):
+        (state.on_contact_event if topic == CONTACT_TOPIC else state.on_agent_event)(e)
+    state.advance()
+    streaming = (sum(k.adherent_seconds for k in state.kpis.values())
+                 / sum(k.scheduled_seconds for k in state.kpis.values()))
+    assert wallboard == pytest.approx(streaming, abs=1e-6)

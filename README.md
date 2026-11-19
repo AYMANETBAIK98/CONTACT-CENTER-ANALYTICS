@@ -272,6 +272,34 @@ against "the day ends like it is now":
 Right call on "will we close above 80 %?" in 130 of 134 projections (97 %). The calibration of step 4 is what
 made it work: plain Erlang C was 5.9 points too pessimistic at 10:00.
 
+### 5b. Live adherence wallboard
+
+```bash
+docker compose run --rm tools python -m rta.wallboard --date 2026-11-04 --at 10:20
+docker compose run --rm tools python -m rta.wallboard --date 2026-11-04 --at 10:20 --market UK --all
+```
+
+```
+UK: 44 agents planned now, 8 out of adherence | Green 35 Amber 4 Red 2 Absent 3
+   UK-A010  Absent    0%  planned WORK   doing -           NOT LOGGED IN for 140 min
+   UK-A004  Green    90%  planned WORK   doing BREAK       PAUSE OVERRUN for 5 min
+   UK-A005  Green    96%  planned BREAK  doing ACW         WORKING IN PAUSE for 5 min
+```
+
+For every scheduled agent (`rta/adherence.py`): what the schedule says now, what the agent is doing, how long they
+have been out of adherence without interruption, and the exception to act on, most urgent first:
+
+| Exception | When |
+|---|---|
+| `NOT LOGGED IN` | planned on WORK, not logged in (late, absent, logged out early) |
+| `PAUSE OVERRUN` | planned back on WORK, still in the break or lunch that just ended |
+| `UNPLANNED PAUSE` | planned on WORK, in a pause the schedule does not have now |
+| `WORKING IN PAUSE` | planned on a pause, still on a contact (often finishing a call) |
+
+Adherence so far today gets the wallboard colour: Green ≥ 90 %, Amber ≥ 85 %, Red below (same bands as dbt
+`fct_agent_day`). A test checks that adherence added up agent by agent equals the adherence the Kafka consumer
+computes interval by interval: one definition everywhere.
+
 ## Project structure
 
 ```
@@ -284,7 +312,7 @@ made it work: plain Erlang C was 5.9 points too pessimistic at 10:00.
 ├── streaming/           # step 2: Kafka producer, KPI consumer, shared KPI logic
 ├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
 ├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
-├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest)
+├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest, adherence wallboard)
 ├── dashboards/          # step 7
 ├── tests/               # pytest
 └── docs/                # documentation
