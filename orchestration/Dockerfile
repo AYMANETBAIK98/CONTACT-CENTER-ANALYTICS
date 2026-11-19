@@ -9,8 +9,8 @@ RUN apt-get update \
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 USER airflow
-# Same Airflow version pinned, project libraries resolved against Airflow's official constraints
-RUN pip install --no-cache-dir "apache-airflow==2.10.5" pyspark==3.5.3 boto3 psycopg2-binary pyarrow tzdata confluent-kafka \
+# Same Airflow version pinned, project libraries (PySpark 3.5.4 included) pinned by Airflow's official constraints
+RUN pip install --no-cache-dir "apache-airflow==2.10.5" pyspark boto3 psycopg2-binary pyarrow tzdata confluent-kafka \
       --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt
 RUN python -m venv /home/airflow/dbt-venv \
  && /home/airflow/dbt-venv/bin/pip install --no-cache-dir dbt-core==1.11.16 dbt-postgres==1.11.0
