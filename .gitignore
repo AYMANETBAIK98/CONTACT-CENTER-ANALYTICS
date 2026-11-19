@@ -12,9 +12,9 @@ __pycache__/
 .venv/
 venv/
 # dbt
-dbt/target/
-dbt/logs/
-dbt/dbt_packages/
+dbt/**/target/
+dbt/**/logs/
+dbt/**/dbt_packages/
 .user.yml
 # IDE / OS
 .vscode/

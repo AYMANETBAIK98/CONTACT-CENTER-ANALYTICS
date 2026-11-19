@@ -1,0 +1,13 @@
+version: 2
+
+# The gold tables of the lakehouse, copied to PostgreSQL by spark/gold.py (step 3)
+sources:
+  - name: lakehouse
+    schema: lakehouse
+    tables:
+      - name: interval_kpis
+        description: One row per market and 15-minute interval (UTC).
+      - name: agent_daily
+        description: One row per scheduled agent and day.
+      - name: daily_market
+        description: One row per market and day (end-of-day report).

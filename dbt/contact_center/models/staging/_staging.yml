@@ -1,0 +1,59 @@
+version: 2
+
+# Data tests: each one is a query that must return 0 rows. If it returns rows, dbt build fails.
+models:
+  - name: stg_interval_kpis
+    description: Interval KPIs from the lakehouse, clean names and types.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [market_code, interval_start_utc]}
+    columns:
+      - name: market_code
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: ["UK", "DE", "ES"]}
+      - name: interval_start_utc
+        data_tests: [not_null]
+      - name: contacts_offered
+        data_tests:
+          - not_null
+          - between: {arguments: {min_value: 0, max_value: 1000}}
+      - name: service_level
+        data_tests:
+          - between: {arguments: {min_value: 0, max_value: 1}}
+      - name: abandon_rate
+        data_tests:
+          - between: {arguments: {min_value: 0, max_value: 1}}
+      - name: occupancy
+        data_tests:
+          - between: {arguments: {min_value: 0, max_value: 1}}
+      - name: adherence
+        data_tests:
+          - between: {arguments: {min_value: 0, max_value: 1}}
+
+  - name: stg_agent_daily
+    description: One row per scheduled agent and day.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [agent_username, work_date]}
+    columns:
+      - name: agent_username
+        data_tests: [not_null]
+      - name: work_date
+        data_tests: [not_null]
+      - name: is_absent
+        data_tests: [not_null]
+      - name: adherence
+        data_tests:
+          - between: {arguments: {min_value: 0, max_value: 1}}
+
+  - name: stg_daily_market
+    description: One row per market and day.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [market_code, report_date]}
+    columns:
+      - name: service_level
+        data_tests:
+          - between: {arguments: {min_value: 0, max_value: 1}}

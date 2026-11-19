@@ -1,0 +1,16 @@
+name: contact_center
+version: "1.0.0"
+profile: contact_center
+
+model-paths: ["models"]
+test-paths: ["tests"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  contact_center:
+    staging:
+      +schema: staging
+      +materialized: view     # always up to date with the lakehouse tables, nothing stored twice
+    marts:
+      +schema: marts
+      +materialized: table    # stored, so Power BI reads it fast

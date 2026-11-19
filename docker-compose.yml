@@ -130,6 +130,8 @@ services:
       WAREHOUSE_DB: ${WAREHOUSE_DB:-contact_center}
       WAREHOUSE_USER: ${WAREHOUSE_USER:-cc}
       WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
+      DBT_PROJECT_DIR: /app/dbt/contact_center     # step 4: "dbt build" works from any folder
+      DBT_PROFILES_DIR: /app/dbt/contact_center
     depends_on:
       postgres:
         condition: service_healthy

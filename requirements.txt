@@ -5,3 +5,5 @@ confluent-kafka==2.6.1
 boto3==1.35.54
 pytest==8.3.4
 tzdata==2025.2
+dbt-core==1.11.16
+dbt-postgres==1.11.0
