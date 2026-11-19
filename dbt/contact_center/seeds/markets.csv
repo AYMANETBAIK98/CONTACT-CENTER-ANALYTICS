@@ -1,0 +1,4 @@
+market_code,market_name,queue,timezone,language,weekday_open_hour,weekday_close_hour,saturday_open_hour,saturday_close_hour,sl_target,sl_threshold_seconds
+UK,United Kingdom,UK_General,Europe/London,en,8,20,9,17,0.80,20
+DE,Germany,DE_General,Europe/Berlin,de,8,20,9,17,0.80,20
+ES,Spain,ES_General,Europe/Madrid,es,9,21,,,0.80,20

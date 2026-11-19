@@ -1,0 +1,81 @@
+version: 2
+
+# Star schema read by Power BI: 4 dimensions around 2 facts.
+models:
+  - name: dim_market
+    description: One row per market (from the markets seed).
+    columns:
+      - name: market_code
+        data_tests: [unique, not_null]
+
+  - name: dim_date
+    description: One row per calendar day.
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+
+  - name: dim_interval
+    description: One row per 15-minute slot of the day, local time (96 rows).
+    columns:
+      - name: interval_key
+        data_tests:
+          - unique
+          - not_null
+          - between: {arguments: {min_value: 0, max_value: 95}}
+
+  - name: dim_agent
+    description: One row per agent.
+    columns:
+      - name: agent_username
+        data_tests: [unique, not_null]
+      - name: market_code
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_market'), field: market_code}
+
+  - name: fct_interval
+    description: One row per market and 15-minute interval.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [market_code, interval_start_utc]}
+    columns:
+      - name: market_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_market'), field: market_code}
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: interval_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_interval'), field: interval_key}
+      - name: contacts_answered_in_sl
+        description: Never more than the contacts answered.
+        data_tests:
+          - dbt_utils_expression:
+              arguments: {expression: "contacts_answered_in_sl <= contacts_answered"}
+
+  - name: fct_agent_day
+    description: One row per scheduled agent and day.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [agent_username, date_key]}
+    columns:
+      - name: agent_username
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_agent'), field: agent_username}
+      - name: date_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: adherence_band
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["Green", "Amber", "Red", "Absent"]}

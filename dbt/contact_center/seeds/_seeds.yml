@@ -1,0 +1,11 @@
+version: 2
+
+seeds:
+  - name: markets
+    description: Reference data for the 3 markets (same values as generator/config.py).
+    config:
+      schema: marts
+      column_types:
+        sl_target: numeric(4, 2)
+        saturday_open_hour: int
+        saturday_close_hour: int

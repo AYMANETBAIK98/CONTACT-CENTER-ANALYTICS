@@ -30,7 +30,7 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 1 | Realistic data generator: contacts, agent states, schedules, forecast | Python | ✅ |
 | 2 | Real time: events into Kafka, KPIs every 15 minutes | Redpanda, Python | ✅ |
 | 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | ✅ |
-| 4 | Star schema + data tests | dbt | ⏳ |
+| 4 | Star schema + data tests | dbt | ✅ |
 | 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | |
 | 6 | Automatic intraday status message | Python | |
 | 7 | Live dashboard + historical dashboard | Grafana / Streamlit, Power BI | |
@@ -193,6 +193,40 @@ equal the ones the Kafka consumer computes event by event (step 2). Building tha
 two agent events at the same millisecond (`LOGIN` then `AVAILABLE`) were sometimes ordered the wrong way,
 leaving the agent "not productive" for hours. Silver now orders ties `LOGIN` first, `LOGOUT` last.
 
+## Step 4: star schema with dbt
+
+```bash
+docker compose build tools                     # once: adds dbt to the tools image
+docker compose run --rm tools dbt build        # seed + 9 models + 41 data tests
+docker compose run --rm tools dbt docs generate
+```
+
+dbt reads the gold tables Spark copied to PostgreSQL (`lakehouse.*`) and builds two layers:
+
+| Layer | Schema | Materialized | What |
+|---|---|---|---|
+| **staging** | `staging` | views | `stg_interval_kpis`, `stg_agent_daily`, `stg_daily_market`: same rows, clean names, exact `numeric` types, UTC `timestamptz` |
+| **marts** | `marts` | tables | the star schema below, read by Power BI |
+
+```
+              dim_date ──┐            ┌── dim_interval (96 local 15-min slots)
+                         ▼            ▼
+ dim_market ──►  fct_interval   (market × 15 min: counts, SL, abandon, occupancy, staffing gap)
+     │
+     └──────►  fct_agent_day ◄── dim_agent   (agent × day: late, pause overrun, adherence band)
+```
+
+- `dim_market` comes from a **seed** (`seeds/markets.csv`): reference data kept in Git (time zone, opening hours, 80/20 target).
+- `dim_interval` is in **local time**: "the 11:00 slot" is 11:00 in London for UK and 11:00 in Madrid for ES.
+- Facts keep the **counts** (offered, answered, answered in SL) next to the ratios, so a day or a week is re-aggregated
+  correctly: SL = `sum(answered_in_sl) / sum(offered)`, never the average of interval SLs.
+- `fct_agent_day.adherence_band` is the wallboard colour code: Green ≥ 90 %, Amber ≥ 85 %, Red below, Absent.
+
+**Data tests (41)**: unique and not-null keys, every fact key exists in its dimension (`relationships`),
+ratios between 0 and 1, markets limited to UK/DE/ES, answered in SL never above answered, and a reconciliation test:
+the intervals of each market and day must add up to the end-of-day report (`daily_market`).
+Custom generic tests live in `dbt/contact_center/tests/generic/` (no external package needed).
+
 ## Project structure
 
 ```
@@ -204,7 +238,7 @@ leaving the agent "not productive" for hours. Silver now orders ties `LOGIN` fir
 ├── generator/           # step 1: simulated contact center data + Erlang C
 ├── streaming/           # step 2: Kafka producer, KPI consumer, shared KPI logic
 ├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
-├── dbt/                 # step 4: star schema + tests
+├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
 ├── dashboards/          # step 7
 ├── tests/               # pytest
 └── docs/                # documentation
