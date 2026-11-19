@@ -201,11 +201,15 @@ services:
       context: .
       dockerfile: orchestration/Dockerfile
     profiles: ["airflow"]
-    command: >
-      bash -c "airflow db migrate &&
-               (airflow users create --username admin --password admin --firstname Admin --lastname Local
-                  --role Admin --email admin@example.com || true) &&
-               (airflow scheduler &) && exec airflow webserver"
+    # one line per command: in a folded YAML block, a more indented line keeps its line break
+    # (that is what broke the first "users create": --role ended up as a separate command)
+    command:
+      - bash
+      - -c
+      - >-
+        airflow db migrate &&
+        (airflow users create --username admin --password admin --firstname Admin --lastname Local --role Admin --email admin@example.com || true) &&
+        (airflow scheduler &) && exec airflow webserver
     ports:
       - "8082:8080"                      # 8080 is the Redpanda Console
     volumes:
@@ -226,6 +230,12 @@ services:
       WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
       DBT_PROJECT_DIR: /opt/airflow/project/dbt/contact_center
       DBT_PROFILES_DIR: /opt/airflow/project/dbt/contact_center
+      # the airflow user cannot write in the project folder (files created by root in the other containers),
+      # so everything Airflow writes goes to its home folder; the results still land in S3 and PostgreSQL
+      LANDING_DIR: /home/airflow/landing
+      REPORTS_DIR: /home/airflow/reports
+      DBT_TARGET_PATH: /home/airflow/dbt-target
+      DBT_LOG_PATH: /home/airflow/dbt-logs
     depends_on:
       postgres:
         condition: service_healthy

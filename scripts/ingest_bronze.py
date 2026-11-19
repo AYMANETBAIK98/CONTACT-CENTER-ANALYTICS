@@ -21,7 +21,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 ROOT = Path(__file__).resolve().parent.parent
-LANDING = ROOT / "data" / "landing"
+LANDING = Path(os.getenv("LANDING_DIR", ROOT / "data" / "landing"))   # LANDING_DIR: Airflow writes elsewhere
 BUCKET = "bronze"
 # one-part uploads up to 100 MB, so the ETag stays the MD5 of the file (needed by already_there)
 SINGLE_PART = TransferConfig(multipart_threshold=100 * 1024 * 1024)

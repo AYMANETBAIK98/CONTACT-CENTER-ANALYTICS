@@ -13,6 +13,7 @@ Same --seed = same data, so results are reproducible.
 from __future__ import annotations
 
 import argparse
+import os
 import csv
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -22,7 +23,7 @@ from generator import config as cfg
 from generator.simulate import DayData, iso, simulate_day
 
 ROOT = Path(__file__).resolve().parent.parent
-LANDING = ROOT / "data" / "landing"
+LANDING = Path(os.getenv("LANDING_DIR", ROOT / "data" / "landing"))   # LANDING_DIR: Airflow writes elsewhere
 
 
 def partition(dataset: str, day: date, market: str) -> Path:
@@ -86,7 +87,7 @@ def main() -> None:
             print(f"{day} {day:%a} {market.code}  {summary(data)}")
     seconds = (datetime.now(timezone.utc) - started).total_seconds()
     print(f"\nDone in {seconds:.0f}s: {totals['contacts']:,} contacts, {totals['agent_events']:,} agent events "
-          f"written to {LANDING.relative_to(ROOT)}/")
+          f"written to {LANDING}/")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from rta.wallboard import statuses
 
 FLAGS = {"UK": "🇬🇧", "DE": "🇩🇪", "ES": "🇪🇸"}
 NAMES = {"UK": "UK", "DE": "DE", "ES": "ES"}
-REPORTS = ROOT / "reports"
+REPORTS = Path(os.getenv("REPORTS_DIR", ROOT / "reports"))
 
 
 def probability_on_target(p: Projection) -> float:
@@ -130,7 +131,7 @@ def main() -> None:
     REPORTS.mkdir(exist_ok=True)
     path = REPORTS / f"rtm_update_{args.date}_{args.at.replace(':', '')}.txt"
     path.write_text(text + "\n", encoding="utf-8")
-    print(f"\n(saved to {path.relative_to(ROOT)})")
+    print(f"\n(saved to {path})")
 
 
 if __name__ == "__main__":

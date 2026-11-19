@@ -11,7 +11,7 @@ from pathlib import Path
 from streaming.events import INTERVAL, KpiState, load_schedule, parse_ts, split_by_interval
 
 ROOT = Path(__file__).resolve().parent.parent
-LANDING = ROOT / "data" / "landing"
+LANDING = Path(os.getenv("LANDING_DIR", ROOT / "data" / "landing"))   # LANDING_DIR: Airflow writes elsewhere
 
 
 def load_forecast(day: str, landing: Path = LANDING) -> dict[str, dict[datetime, tuple[float, float]]]:
