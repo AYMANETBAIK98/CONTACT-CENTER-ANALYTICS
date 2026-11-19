@@ -21,3 +21,5 @@ dbt/**/dbt_packages/
 .idea/
 .DS_Store
 Thumbs.db
+# generated status messages (step 6)
+reports/

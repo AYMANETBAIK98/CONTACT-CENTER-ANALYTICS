@@ -128,3 +128,27 @@ def test_wallboard_adherence_equals_streaming_kpis(tmp_path, monkeypatch):
     streaming = (sum(k.adherent_seconds for k in state.kpis.values())
                  / sum(k.scheduled_seconds for k in state.kpis.values()))
     assert wallboard == pytest.approx(streaming, abs=1e-6)
+
+
+# ---------------------------------------------------------------- 6. intraday status message
+def test_status_message(tmp_path, monkeypatch):
+    import generator.generate as gen
+    from generator.config import MARKETS
+    from generator.simulate import simulate_day
+    from rta.status_message import build_message
+    monkeypatch.setattr(gen, "LANDING", tmp_path)
+    d = date(2026, 11, 4)
+    gen.write_day(d, "UK", simulate_day(MARKETS[0], d, seed=42))
+    text = build_message(str(d), "12:00", "files", tmp_path)
+    lines = text.splitlines()
+    assert lines[0] == "RTM UPDATE – 2026-11-04 (closed intervals up to 12:00 UTC)"
+    assert "🇬🇧 UK" in lines and any(line.startswith("Global: SL") and "Probability" in line for line in lines)
+    assert any(line.startswith("* Day so far:") for line in lines)
+
+
+def test_probability_grows_with_the_margin():
+    from rta.status_message import probability_on_target
+    starts, fc, plan = day()
+    low = project("UK", starts[8], closed_rows(starts[:8], 40, 30), fc, plan)
+    high = project("UK", starts[8], closed_rows(starts[:8], 40, 39), fc, plan)
+    assert probability_on_target(low) < probability_on_target(high)

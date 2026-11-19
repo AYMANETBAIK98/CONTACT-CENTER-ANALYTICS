@@ -31,8 +31,8 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 2 | Real time: events into Kafka, KPIs every 15 minutes | Redpanda, Python | ✅ |
 | 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | ✅ |
 | 4 | Star schema + data tests | dbt | ✅ |
-| 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | ⏳ |
-| 6 | Automatic intraday status message | Python | |
+| 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | ✅ |
+| 6 | Automatic intraday status message | Python | ✅ |
 | 7 | Live dashboard + historical dashboard | Grafana / Streamlit, Power BI | |
 | 8 | Orchestration + CI | Airflow, GitHub Actions | |
 
@@ -300,6 +300,33 @@ Adherence so far today gets the wallboard colour: Green ≥ 90 %, Amber ≥ 85 %
 `fct_agent_day`). A test checks that adherence added up agent by agent equals the adherence the Kafka consumer
 computes interval by interval: one definition everywhere.
 
+## Step 6: automatic intraday status message
+
+The update a real-time analyst sends to team managers, ops and WFM several times a day, written in one command
+from the projection (5a) and the wallboard (5b). Plain text, ready to paste into Teams, Slack or an email
+(also saved to `reports/`).
+
+```bash
+docker compose run --rm tools python -m rta.status_message --date 2026-11-04 --at 12:00 --source files
+```
+
+```
+RTM UPDATE – 2026-11-07 (closed intervals up to 12:00 UTC)
+
+🇬🇧 UK
+Global: SL 🔴 54% | EOD Projection 65% | 0% Probability | 🔴 HIGH Risk
+* Day so far: 568 offered, 21% abandoned, volume +2% vs forecast.
+* Lowest interval: 11:00 at 1% (68 offered).
+* Rest of day: 103% SL needed from now to close at 80%; short: 14:45 (-10), 15:00 (-11), 15:15 (-10).
+* Adherence: 🟢 18 | 🟡 1 | 🔴 2 | absent 1.
+RTM priority – Team Managers/Ops/WFM: cover 15:00 (moving breaks / overtime).
+Target out of reach today: priority is to limit abandons and protect tomorrow.
+```
+
+**Probability of closing on target**: the backtest shows the projection error shrinks as the day goes on, so the
+uncertainty is modelled as 0.5 point + 4 points × the share of the day's calls still to come, and the probability is
+the normal-curve chance that the close lands above 80 %. Risk: LOW ≥ 90 %, MEDIUM ≥ 60 %, HIGH below.
+
 ## Project structure
 
 ```
@@ -312,7 +339,7 @@ computes interval by interval: one definition everywhere.
 ├── streaming/           # step 2: Kafka producer, KPI consumer, shared KPI logic
 ├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
 ├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
-├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest, adherence wallboard)
+├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest, adherence wallboard, status message)
 ├── dashboards/          # step 7
 ├── tests/               # pytest
 └── docs/                # documentation

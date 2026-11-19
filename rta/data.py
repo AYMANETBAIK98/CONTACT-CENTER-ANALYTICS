@@ -60,13 +60,13 @@ def read_realtime_kpis(day: str) -> dict[str, list[dict]]:
                             dbname=os.getenv("WAREHOUSE_DB", "contact_center"),
                             user=os.getenv("WAREHOUSE_USER", "cc"), password=os.getenv("WAREHOUSE_PASSWORD", "cc"))
     with conn, conn.cursor() as cur:
-        cur.execute("""select market, interval_start, offered, answered, answered_in_sl, aht_seconds, agents_productive
+        cur.execute("""select market, interval_start, offered, answered, abandoned, answered_in_sl, aht_seconds, agents_productive
                        from realtime.interval_kpis
                        where (interval_start at time zone 'UTC')::date = %s order by 1, 2""", (day,))
         out: dict[str, list[dict]] = defaultdict(list)
-        for m, start, offered, answered, in_sl, aht, prod in cur.fetchall():
+        for m, start, offered, answered, abandoned, in_sl, aht, prod in cur.fetchall():
             out[m].append({"interval_start": start, "offered": offered, "answered": answered,
-                           "answered_in_sl": in_sl, "aht_seconds": float(aht) if aht is not None else None,
+                           "abandoned": abandoned, "answered_in_sl": in_sl, "aht_seconds": float(aht) if aht is not None else None,
                            "agents_productive": float(prod or 0)})
     conn.close()
     return dict(out)
