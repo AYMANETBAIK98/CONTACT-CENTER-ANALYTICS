@@ -31,7 +31,7 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 2 | Real time: events into Kafka, KPIs every 15 minutes | Redpanda, Python | ✅ |
 | 3 | Batch lakehouse: bronze → silver → gold | RustFS (S3), PySpark | ✅ |
 | 4 | Star schema + data tests | dbt | ✅ |
-| 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | |
+| 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | ⏳ |
 | 6 | Automatic intraday status message | Python | |
 | 7 | Live dashboard + historical dashboard | Grafana / Streamlit, Power BI | |
 | 8 | Orchestration + CI | Airflow, GitHub Actions | |
@@ -227,6 +227,51 @@ ratios between 0 and 1, markets limited to UK/DE/ES, answered in SL never above 
 the intervals of each market and day must add up to the end-of-day report (`daily_market`).
 Custom generic tests live in `dbt/contact_center/tests/generic/` (no external package needed).
 
+## Step 5: real-time analyst logic
+
+### 5a. End-of-day service level projection
+
+The question a real-time analyst answers all day: *"It is 12:00, SL so far is 84 %. Where will we close,
+and what SL do we need from now on to still close at 80 %?"*
+
+```bash
+# live, from the KPIs the Kafka consumer writes (step 2 running)
+docker compose run --rm tools python -m rta.eod --date 2026-11-04 --at 12:00
+# or replay the day from the files, with every remaining interval
+docker compose run --rm tools python -m rta.eod --date 2026-11-04 --at 12:00 --source files --detail
+docker compose run --rm tools python -m rta.backtest            # how far can we trust it?
+```
+
+```
+DE ON TRACK    SL so far   96% | projected EOD   97% | needed from now   64% | volume x0.95 | worst gap 18:30 -2.6 agents
+ES ON TRACK    SL so far   90% | projected EOD   95% | needed from now   72% | volume x1.04 | worst gap 19:30 -1.7 agents
+UK ON TRACK    SL so far   95% | projected EOD   97% | needed from now   68% | volume x0.86 | worst gap 19:30 -3.9 agents
+```
+
+How `rta/projection.py` gets there (times in UTC):
+1. **What happened**: closed intervals so far (offered, answered within 20 s, agents productive, AHT).
+2. **Re-forecast**: today runs X % above or below forecast, so the rest of the day is scaled the same way (volume and AHT).
+3. **Real staffing**: planned agents × the share actually productive today (absences, late logins, long breaks).
+4. **Erlang C, calibrated on today**: Erlang C assumes nobody hangs up, so it over-estimates the queue.
+   The closed intervals show by how much (calls really missed / calls Erlang C would have missed), and the
+   remaining intervals are corrected by that factor.
+5. **Projected EOD SL** = (in SL so far + expected in SL later) / (offered so far + expected later),
+   the **SL needed from now on**, a status (ON TRACK, AT RISK, TARGET LOST, SECURED) and the agents each
+   remaining interval is short.
+
+**Backtest** (12 simulated days × 3 markets, `rta.backtest`): mean absolute error of the projected close,
+against "the day ends like it is now":
+
+| At (UTC) | Projection | SL so far |
+|---|---|---|
+| 10:00 | **2.4 pts** | 9.6 pts |
+| 12:00 | **0.8 pts** | 4.7 pts |
+| 14:00 | **0.8 pts** | 1.8 pts |
+| 16:00 | **0.6 pts** | 0.8 pts |
+
+Right call on "will we close above 80 %?" in 130 of 134 projections (97 %). The calibration of step 4 is what
+made it work: plain Erlang C was 5.9 points too pessimistic at 10:00.
+
 ## Project structure
 
 ```
@@ -239,6 +284,7 @@ Custom generic tests live in `dbt/contact_center/tests/generic/` (no external pa
 ├── streaming/           # step 2: Kafka producer, KPI consumer, shared KPI logic
 ├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
 ├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
+├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest)
 ├── dashboards/          # step 7
 ├── tests/               # pytest
 └── docs/                # documentation
