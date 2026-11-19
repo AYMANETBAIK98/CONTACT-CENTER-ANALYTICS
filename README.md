@@ -33,7 +33,7 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 4 | Star schema + data tests | dbt | ✅ |
 | 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | ✅ |
 | 6 | Automatic intraday status message | Python | ✅ |
-| 7 | Live dashboard + historical dashboard | Streamlit, Power BI | ⏳ |
+| 7 | Live dashboard + historical dashboard | Streamlit, Power BI | ✅ |
 | 8 | Orchestration + CI | Airflow, GitHub Actions | |
 
 ## Run it locally
@@ -349,6 +349,24 @@ The real-time analyst's screen in the browser, built only from the step 5 and 6 
 Two modes: **Replay** (no Kafka, a slider moves the clock through a simulated day) and **Live**: start the consumer
 and the producer of step 2 and the page refreshes itself as `realtime.interval_kpis` fills up.
 
+### 7b. Historical dashboard (Power BI)
+
+`dashboards/Contact_Center_History.pbix`, built on the dbt star schema of step 4 (`marts.*`, PostgreSQL `localhost:5435`,
+user `cc` / `cc`). Refresh it after `dbt build`.
+
+![Power BI service level](docs/screenshots/powerbi_service_level.png)
+
+![Power BI adherence](docs/screenshots/powerbi_adherence.png)
+
+- **Service level**: SL, offered, abandon, volume vs forecast, intervals below target; daily SL per market; a heatmap of SL
+  by 15-minute slot (local time) and weekday that shows where 80/20 is lost: the first half hour and Saturday late morning.
+- **Adherence**: adherence, absence, late logins and pause overruns by weekday, agents with the lowest adherence first.
+- DAX measures re-aggregate from counts: `Service Level = DIVIDE(SUM(answered_in_sl), SUM(offered))`.
+
+Building this page found a bug in the dbt model: `is_late` was true for 97 % of agent-days, because logging in
+20 seconds after the shift start counted as late. `fct_agent_day` now uses a 2-minute grace period
+(`vars: grace_minutes` in `dbt_project.yml`): 176 late logins and 763 pause overruns over two weeks.
+
 ## Project structure
 
 ```
@@ -362,7 +380,7 @@ and the producer of step 2 and the page refreshes itself as `realtime.interval_k
 ├── spark/               # step 3: PySpark jobs (silver.py, gold.py) + Spark config
 ├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
 ├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest, adherence wallboard, status message)
-├── dashboards/live/     # step 7a: Streamlit live dashboard
+├── dashboards/          # step 7: live/ (Streamlit), Contact_Center_History.pbix (Power BI)
 ├── tests/               # pytest
 └── docs/                # documentation
 ```
