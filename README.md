@@ -390,6 +390,13 @@ generate_day -> ingest_bronze -> silver -> gold -> dbt_build -> eod_report
   so a failed run is simply re-run; `retries=1`, `max_active_runs=1`.
 - `dbt_build` runs the 41 data tests: if the data is wrong the run stops there and no report goes out.
 - The Airflow image runs Spark in local mode and keeps dbt in its own virtualenv (its dependencies clash with Airflow's).
+- The `airflow` user cannot write in the project folder (created by root in the other containers): landing files,
+  reports and dbt output go to its home (`LANDING_DIR`, `REPORTS_DIR`, `DBT_TARGET_PATH`); results still land in S3 and PostgreSQL.
+
+![Airflow grid](docs/screenshots/airflow_grid.png)
+
+First two runs on a laptop: all 6 tasks green, about 3 minutes per day (Spark silver and gold take most of it),
+`dbt build` PASS=51, and the end-of-day report written for each day.
 
 ### 8b. GitHub Actions: CI on every push
 
