@@ -150,6 +150,7 @@ services:
     volumes:
       - .:/app
       - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/conf/log4j2.properties:/opt/spark/conf/log4j2.properties:ro
       - ivy_cache:/opt/ivy               # jars downloaded once (hadoop-aws, postgresql), kept between runs
     environment:
       PATH: /opt/spark/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
