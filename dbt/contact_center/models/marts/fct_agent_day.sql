@@ -1,4 +1,6 @@
 -- FACT: one row per scheduled agent and day (schedule adherence and productivity).
+-- Late and pause overrun use a 2-minute grace period: logging in 20 seconds after the shift start is not "late"
+-- (without it, 97 % of agent-days counted as late).
 select
     agent_username,
     market_code,
@@ -8,8 +10,8 @@ select
     first_login_utc,
     last_logout_utc,
     is_absent,
-    not is_absent and late_login_minutes > 0         as is_late,
-    not is_absent and pause_overrun_minutes > 0      as has_pause_overrun,
+    not is_absent and late_login_minutes >= {{ var('grace_minutes') }}       as is_late,
+    not is_absent and pause_overrun_minutes >= {{ var('grace_minutes') }}    as has_pause_overrun,
     late_login_minutes,
     pause_overrun_minutes,
     contacts_handled,
