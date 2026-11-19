@@ -1,5 +1,7 @@
 # 📞 Contact Center Analytics Platform
 
+[![ci](https://github.com/AYMANETBAIK98/CONTACT-CENTER-ANALYTICS/actions/workflows/ci.yml/badge.svg)](https://github.com/AYMANETBAIK98/CONTACT-CENTER-ANALYTICS/actions/workflows/ci.yml)
+
 > Real-time and batch data platform for a multi-market contact center (UK · DE · ES).
 > Call and agent events stream through **Kafka**, land in an **S3 lakehouse** (RustFS), are processed with **PySpark** and **dbt**,
 > and feed live and historical dashboards with the KPIs a real-time analyst watches all day:
@@ -34,7 +36,7 @@ RustFS (S3): bronze ──► PySpark ──► silver ──► gold ──► 
 | 5 | Real-time analyst logic: EOD service level projection, Erlang C staffing, adherence colour code | Python, SQL | ✅ |
 | 6 | Automatic intraday status message | Python | ✅ |
 | 7 | Live dashboard + historical dashboard | Streamlit, Power BI | ✅ |
-| 8 | Orchestration + CI | Airflow, GitHub Actions | |
+| 8 | Orchestration + CI | Airflow, GitHub Actions | ✅ |
 
 ## Run it locally
 
@@ -68,6 +70,7 @@ Environment ready. On to step 1!
 | PostgreSQL | `localhost:5435`, database `contact_center` | `cc` / `cc` |
 | Kafka API (from your PC) | `localhost:19092` | – |
 | Live dashboard (step 7) | http://localhost:8501 | – |
+| Airflow (step 8) | http://localhost:8082 | `admin` / `admin` (local only) |
 
 Stop with `docker compose down` (data is kept). `docker compose down -v` also deletes the data.
 
@@ -367,6 +370,37 @@ Building this page found a bug in the dbt model: `is_late` was true for 97 % of 
 20 seconds after the shift start counted as late. `fct_agent_day` now uses a 2-minute grace period
 (`vars: grace_minutes` in `dbt_project.yml`): 176 late logins and 763 pause overruns over two weeks.
 
+## Step 8: orchestration and CI
+
+### 8a. Airflow: the daily batch
+
+```bash
+docker compose --profile airflow build airflow        # once: Airflow 2.10 + Java + PySpark + dbt
+docker compose --profile airflow up -d airflow        # http://localhost:8082
+```
+
+DAG `contact_center_daily` (`orchestration/dags/`), every night at 23:00 UTC, one simulated day per run:
+
+```
+generate_day -> ingest_bronze -> silver -> gold -> dbt_build -> eod_report
+```
+
+- Trigger a given day from the UI with the config `{"date": "2026-11-04"}`.
+- Every step is idempotent (same seed, MD5 skip in bronze, partition overwrite in silver/gold, dbt rebuild),
+  so a failed run is simply re-run; `retries=1`, `max_active_runs=1`.
+- `dbt_build` runs the 41 data tests: if the data is wrong the run stops there and no report goes out.
+- The Airflow image runs Spark in local mode and keeps dbt in its own virtualenv (its dependencies clash with Airflow's).
+
+### 8b. GitHub Actions: CI on every push
+
+`.github/workflows/ci.yml`, three jobs:
+
+| Job | What |
+|---|---|
+| Unit tests | all pytest tests that need no Spark or Airflow (generator, Erlang C, streaming, RTA, status message) |
+| Airflow DAG loads | installs Airflow 2.10.5, checks the DAG imports and the task order |
+| Batch pipeline | PostgreSQL service + Java 17: generator (3 days) → Spark silver/gold on a local lake folder → PostgreSQL → Spark tests → `dbt build` |
+
 ## Project structure
 
 ```
@@ -381,6 +415,8 @@ Building this page found a bug in the dbt model: `is_late` was true for 97 % of 
 ├── dbt/contact_center/  # step 4: dbt project (seed, staging, marts, tests)
 ├── rta/                 # step 5: real-time analyst logic (EOD projection, backtest, adherence wallboard, status message)
 ├── dashboards/          # step 7: live/ (Streamlit), Contact_Center_History.pbix (Power BI)
+├── orchestration/       # step 8: Airflow image + DAG
+├── .github/workflows/   # step 8: CI
 ├── tests/               # pytest
 └── docs/                # documentation
 ```

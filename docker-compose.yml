@@ -194,6 +194,44 @@ services:
       postgres:
         condition: service_healthy
 
+  # Airflow (step 8): runs the daily batch DAG. http://localhost:8082 (admin / admin, local only)
+  #   docker compose --profile airflow up -d airflow
+  airflow:
+    build:
+      context: .
+      dockerfile: orchestration/Dockerfile
+    profiles: ["airflow"]
+    command: >
+      bash -c "airflow db migrate &&
+               (airflow users create --username admin --password admin --firstname Admin --lastname Local
+                  --role Admin --email admin@example.com || true) &&
+               (airflow scheduler &) && exec airflow webserver"
+    ports:
+      - "8082:8080"                      # 8080 is the Redpanda Console
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - .:/opt/airflow/project
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__WEBSERVER__SECRET_KEY: local-dev-only
+      PYTHONPATH: /opt/airflow/project
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-lakehouse}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-lakehouse123}
+      WAREHOUSE_HOST: postgres
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-contact_center}
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-cc}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-cc}
+      DBT_PROJECT_DIR: /opt/airflow/project/dbt/contact_center
+      DBT_PROFILES_DIR: /opt/airflow/project/dbt/contact_center
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+
 volumes:
   redpanda_data:
   s3_data:

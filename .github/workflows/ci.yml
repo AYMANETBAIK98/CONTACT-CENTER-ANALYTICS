@@ -1,0 +1,89 @@
+# CI (step 8): on every push and pull request, GitHub runs the tests and the whole batch pipeline
+# on a small simulated dataset: generator -> Spark silver/gold -> PostgreSQL -> dbt build (models + data tests).
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit tests (generator, Erlang C, streaming, RTA, DAG)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Pytest
+        run: pytest -v                     # Spark and Airflow tests are skipped here, they run below
+
+  dag:
+    name: Airflow DAG loads
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Airflow 2.10.5
+        run: pip install "apache-airflow==2.10.5" pytest --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt
+      - name: DAG tests
+        run: |
+          airflow db migrate > /dev/null
+          pytest -v tests/test_dag.py
+
+  pipeline:
+    name: Batch pipeline (Spark + PostgreSQL + dbt)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: contact_center
+          POSTGRES_USER: cc
+          POSTGRES_PASSWORD: cc
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cc -d contact_center" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      LAKE_URI: file://${{ github.workspace }}/lake/      # the lakehouse in a local folder instead of S3
+      WAREHOUSE_HOST: localhost
+      WAREHOUSE_PORT: "5432"
+      PGPASSWORD: cc
+      DBT_PROFILES_DIR: dbt/contact_center
+      DBT_PROJECT_DIR: dbt/contact_center
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install (same Spark libraries as Dockerfile.spark)
+        run: |
+          pip install -r requirements.txt
+          pip install pyspark==3.5.3 numpy==1.26.4 pandas==2.2.3 pyarrow==15.0.2
+      - name: Schemas
+        run: psql -h localhost -U cc -d contact_center -f sql/init.sql
+      - name: Generate 3 days -> bronze
+        run: |
+          python -m generator.generate --start 2026-11-02 --days 3
+          mkdir -p lake && cp -r data/landing lake/bronze
+      - name: Spark silver + gold (+ export to PostgreSQL)
+        run: |
+          spark-submit --packages org.postgresql:postgresql:42.7.4 spark/silver.py
+          spark-submit --packages org.postgresql:postgresql:42.7.4 spark/gold.py
+        env:
+          PYTHONPATH: .
+      - name: Spark tests (batch = streaming)
+        run: pytest -v tests/test_lakehouse.py
+      - name: dbt build (star schema + 41 data tests)
+        run: dbt build
